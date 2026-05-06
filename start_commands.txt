@@ -1,0 +1,10 @@
+export PATH="$HOME/.local/bin:$PATH"
+source .venv/bin/activate
+uv pip install -e .
+# pentru fine-tuning AMD/ROCm:
+# uv pip install -e ".[finetune]"
+cp .env.example .env
+docker compose up -d qdrant
+ollama pull mministral-3:3b
+uvicorn legal_ai.api.main:app --reload
+streamlit run src/legal_ai/ui/app.py

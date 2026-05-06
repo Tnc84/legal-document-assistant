@@ -14,7 +14,7 @@ RAG + fine-tuning assistant pentru analiza contractelor juridice. Trei module:
 - Orchestrare RAG: **LlamaIndex**
 - API: **FastAPI**, UI demo: **Streamlit**
 - Ingestion PDF: **PyMuPDF** + **pdfplumber**
-- Fine-tuning: **TRL + PEFT + bitsandbytes** (QLoRA)
+- Fine-tuning: **TRL + PEFT** (AMD/ROCm friendly) + optional **bitsandbytes** pe NVIDIA
 
 ## Setup local
 
@@ -34,6 +34,10 @@ uvicorn legal_ai.api.main:app --reload --host 0.0.0.0 --port 8000
 
 streamlit run src/legal_ai/ui/app.py
 ```
+
+Pentru fine-tuning:
+- AMD/ROCm: `uv pip install -e ".[finetune]"`
+- NVIDIA/CUDA: `uv pip install -e ".[finetune,finetune-nvidia]"`
 
 ## Structură
 
