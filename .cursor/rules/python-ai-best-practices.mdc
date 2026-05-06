@@ -1,0 +1,61 @@
+---
+description: Python + AI best practices, SOLID principles, and strict anti-duplication rules
+alwaysApply: true
+---
+
+# Python + AI – Best Practices
+
+## SOLID Principles (mandatory)
+
+- **S – Single Responsibility**: a class/function must do one thing only.
+- **O – Open/Closed**: extend through inheritance or composition, do not modify stable code.
+- **L – Liskov Substitution**: subclasses must be able to replace the base class without changing expected behavior.
+- **I – Interface Segregation**: prefer small, specific interfaces (`Protocol`, `ABC`) instead of a large one.
+- **D – Dependency Inversion**: depend on abstractions, not implementations. Inject dependencies (DI) in the constructor.
+
+## Code Rules - STRICT
+
+- **DO NOT write a function/method inside another function/method.** If you need a helper, extract it as a top-level function/method or a private class method (`_helper`).
+- **DO NOT duplicate code.** If the same logic appears in 2+ places -> extract a shared function/class (DRY).
+- **When replacing a code block, DELETE the old block.** Do not keep dead, commented, or unused code "just in case". Use git for version history.
+- No unresolved `TODO` / `FIXME` at commit time.
+- No unused variables/imports.
+
+## Python Style
+
+- Follow **PEP 8** + **PEP 257** (docstrings) + **PEP 484** (complete type hints on public signatures).
+- Formatter: `black`, linter: `ruff` or `flake8`, type checker: `mypy` / `pyright`.
+- Use descriptive names: `snake_case` for functions/variables, `PascalCase` for classes, `UPPER_CASE` for constants.
+- Keep functions short (ideally < 20 lines), max 3-4 parameters; use `@dataclass` / `pydantic.BaseModel` for data objects.
+- Prefer composition over deep inheritance.
+- Use `pathlib.Path` instead of `os.path`, f-strings instead of `%` or `.format`.
+- Use context managers (`with`) for resources (files, connections, locks).
+- Use specific exceptions; avoid empty `except Exception:` blocks. Do not swallow errors.
+- Use the `logging` module, never `print` in production code.
+- Avoid mutable global state; avoid side effects during import.
+
+## Project Architecture
+
+- Keep a clear structure: `src/<package>/`, `configs/`, `data/`, `scripts/`.
+- Separate **domain** (business logic) from **infrastructure** (I/O, API, DB, LLM).
+- Use `pydantic-settings` / environment variables for configuration, never hardcoded values.
+- Dependency management: `uv` or `poetry`, with committed `pyproject.toml` and lockfile.
+
+## AI / LLM Specific
+
+- Store **prompts** in dedicated files (`.md`/`.yaml`) or versioned templates, not inline string concatenation.
+- Validate LLM inputs and outputs with `pydantic` (structured output).
+- Abstract the LLM provider behind an interface (`LLMClient` with `Protocol`) so models can be swapped without major refactoring.
+- Control costs: set `max_tokens`, `temperature`, timeouts, and retries with backoff (`tenacity`).
+- **Do not send PII / sensitive data** in prompts without anonymization.
+- Use deterministic caching for repeated calls (for example `functools.lru_cache` for pure functions, external cache for LLM calls).
+- Use seed + model versioning for reproducibility.
+- Add instrumentation: log `model`, `prompt_tokens`, `completion_tokens`, `latency`, `cost`.
+- For RAG: clearly separate `Loader`, `Splitter`, `Embedder`, `VectorStore`, `Retriever`, `Generator` (single responsibility for each).
+- Add guardrails: output validation, prompt injection detection, and rate limits.
+
+## Security
+
+- Keep secrets only in environment variables / secret manager, never in code or git.
+- Sanitize user input before sending it to LLM/DB.
+- Apply least privilege for API keys.
