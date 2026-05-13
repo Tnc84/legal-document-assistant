@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BM25 in legal-document-assistant — diagram</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --bm25: #f0883e;
+      --qdrant: #3fb950;
+      --border: #30363d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+      font-size: 15px;
+    }
+    header {
+      padding: 1.5rem 1.5rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+    }
+    header h1 { margin: 0 0 0.35rem; font-size: 1.35rem; font-weight: 600; }
+    header p { margin: 0; color: var(--muted); max-width: 72ch; }
+    main { max-width: 960px; margin: 0 auto; padding: 1.25rem 1.5rem 3rem; }
+    section {
+      margin-bottom: 2.25rem;
+      padding: 1.25rem;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    section h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--accent);
+    }
+    .legend {
+      display: grid;
+      gap: 0.5rem;
+      margin: 0.75rem 0 0;
+      padding: 0;
+      list-style: none;
+    }
+    .legend li { display: flex; align-items: center; gap: 0.5rem; }
+    .swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+    .swatch.bm25 { background: var(--bm25); }
+    .swatch.qdrant { background: var(--qdrant); }
+    .callout {
+      margin-top: 1rem;
+      padding: 0.85rem 1rem;
+      border-left: 4px solid var(--bm25);
+      background: rgba(240, 136, 62, 0.08);
+      border-radius: 0 6px 6px 0;
+    }
+    .callout strong { color: var(--bm25); }
+    code, .mono { font-family: ui-monospace, monospace; font-size: 0.88em; }
+    .paths { color: var(--muted); font-size: 0.9rem; margin-top: 0.5rem; }
+    .mermaid { margin-top: 0.5rem; }
+    footer {
+      text-align: center;
+      padding: 1rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border);
+    }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Where and how BM25 is used</h1>
+    <p>
+      Overview for the <span class="mono">legal-document-assistant</span> project.
+      BM25 is not stored in Qdrant; it runs in Python (<span class="mono">rank_bm25.BM25Okapi</span>)
+      only on the text of chunks already returned by dense retrieval.
+    </p>
+  </header>
+  <main>
+    <section id="legend">
+      <h2>Quick legend</h2>
+      <ul class="legend">
+        <li><span class="swatch qdrant"></span> Qdrant — dense vectors (cosine), persistence</li>
+        <li><span class="swatch bm25"></span> BM25 — lexical, in-memory, over the candidate pool</li>
+      </ul>
+      <div class="callout">
+        <strong>Single BM25 touchpoint in code:</strong>
+        <span class="mono">HybridRetriever.retrieve()</span> —
+        after <span class="mono">vector_store.search()</span>, before the final sort.
+        File: <span class="mono">src/legal_ai/retrieval/hybrid_retriever.py</span>.
+      </div>
+      <p class="paths">
+        API chain: <span class="mono">dependencies.qa_chain</span> →
+        <span class="mono">QAChain.answer</span> →
+        <span class="mono">HybridRetriever.retrieve</span>.
+        Ingestion, RiskDetector, and the document comparator <strong>do not</strong> use BM25.
+      </p>
+    </section>
+
+    <section id="components">
+      <h2>Component diagram (simplified UML deployment)</h2>
+      <p style="color: var(--muted); margin: 0 0 0.5rem;">
+        Which modules talk to Qdrant versus where the BM25 library runs.
+      </p>
+      <pre class="mermaid">
+flowchart TB
+  subgraph api [FastAPI layer]
+    DEP[dependencies.py]
+    QA[QAChain]
+    DEP --> QA
+  end
+  subgraph retrieval [Retrieval]
+    HR[HybridRetriever]
+    VS[QdrantVectorStore]
+    EMB[Embedder]
+    QA --> HR
+    HR --> EMB
+    HR --> VS
+  end
+  subgraph external [External processes]
+    QD[(Qdrant server)]
+    OL[Ollama LLM]
+  end
+  subgraph python_only [Python in-memory only]
+    BM25["BM25Okapi rank_bm25"]
+  end
+  VS <--> QD
+  QA --> OL
+  HR --> BM25
+  style BM25 fill:#f0883e,color:#0f1419
+  style QD fill:#3fb950,color:#0f1419
+  style VS fill:#238636,color:#fff
+      </pre>
+    </section>
+
+    <section id="activity">
+      <h2>Flow inside <span class="mono">HybridRetriever.retrieve</span></h2>
+      <p style="color: var(--muted); margin: 0 0 0.5rem;">
+        <span class="mono">candidate_k = max(top_k * 4, 20)</span> —
+        BM25 only sees these candidates, not the full index.
+      </p>
+      <pre class="mermaid">
+flowchart TD
+  start([Query text])
+  start --> empty{Query empty?}
+  empty -->|yes| z([Return empty list])
+  empty -->|no| k[Compute top_k and candidate_k]
+  k --> enc[Embedder.encode_query]
+  enc --> qsearch[QdrantVectorStore.search dense vector]
+  qsearch --> nohits{Zero hits?}
+  nohits -->|yes| z
+  nohits -->|no| tok[Regex tokenization: chunk text + query lowercased]
+  tok --> bm25[BM25Okapi over token lists from candidates]
+  bm25 --> scores[bm25.get_scores query_tokens]
+  scores --> n1[Min-max Qdrant scores]
+  scores --> n2[Min-max BM25 scores]
+  n1 --> fuse["Fused score w_dense * norm_dense + w_bm25 * norm_bm25"]
+  n2 --> fuse
+  fuse --> sort[Sort descending by fused_score]
+  sort --> cut[Take first top_k as RetrievedChunk]
+  cut --> endNode([Back to QAChain])
+  style bm25 fill:#f0883e,color:#0f1419
+  style qsearch fill:#3fb950,color:#0f1419
+  style fuse fill:#58a6ff,color:#0f1419
+      </pre>
+    </section>
+
+    <section id="sequence">
+      <h2>Sequence diagram (UML) — from question to answer</h2>
+      <pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant Client as Client or API endpoint
+  participant QA as QAChain
+  participant HR as HybridRetriever
+  participant Emb as Embedder
+  participant Qdrant as QdrantClient search
+  participant BM as BM25Okapi in RAM
+  participant LLM as OllamaClient
+
+  Client->>QA: answer(query)
+  QA->>HR: retrieve(query)
+  HR->>Emb: encode_query
+  Emb-->>HR: query_vector
+  HR->>Qdrant: search with limit candidate_k optional document_id filter
+  Note right of Qdrant: Cosine similarity on stored vectors only
+  Qdrant-->>HR: SearchHit list with text + Qdrant score
+  rect rgb(40, 35, 30)
+    Note over HR,BM: BM25 zone: temporary index on candidate chunks only
+    HR->>BM: corpus_tokens from hit.text query_tokens from query
+    BM-->>HR: BM25 scores per row in small corpus
+  end
+  Note over HR: Min-max normalization + Settings weights
+  HR-->>QA: RetrievedChunk list with fused_score
+  QA->>LLM: complete with system + user prompt and context
+  LLM-->>QA: answer text
+  QA-->>Client: QAResponse with citations
+      </pre>
+    </section>
+
+    <section id="data">
+      <h2>What data BM25 sees</h2>
+      <ul style="margin: 0; padding-left: 1.2rem; color: var(--muted);">
+        <li><strong>Input:</strong> the same question string used for embedding; the list of <span class="mono">SearchHit</span> objects from Qdrant (each chunk’s <span class="mono">text</span> field).</li>
+        <li><strong>Output:</strong> a vector of raw scores; then min-max normalization and combination with the normalized dense score (<span class="mono">retrieval_dense_weight</span>, <span class="mono">retrieval_bm25_weight</span> in <span class="mono">Settings</span>).</li>
+      </ul>
+    </section>
+  </main>
+  <footer>
+    Open this file in a browser (<code>file://</code> or a static file server).
+    Diagrams load Mermaid from a CDN — network access is required for the first render.
+  </footer>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "dark",
+      securityLevel: "loose",
+      themeVariables: {
+        primaryColor: "#1a2332",
+        primaryTextColor: "#e6edf3",
+        lineColor: "#8b949e",
+        secondaryColor: "#21262d",
+        tertiaryColor: "#0f1419"
+      }
+    });
+    await mermaid.run({ querySelector: ".mermaid" });
+  </script>
+</body>
+</html>
