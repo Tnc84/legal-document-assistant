@@ -1,6 +1,6 @@
 services:
   qdrant:
-    image: qdrant/qdrant:v1.12.1
+    image: qdrant/qdrant:v1.17.1
     container_name: legal_ai_qdrant
     restart: unless-stopped
     ports:

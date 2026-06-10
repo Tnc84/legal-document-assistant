@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     )
 
     ollama_host: str = Field(default="http://localhost:11434")
-    ollama_model: str = Field(default="ministral:3b")
+    ollama_model: str = Field(default="ministral-3:3b")
     ollama_request_timeout: float = Field(default=120.0, ge=1.0)
     ollama_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
     ollama_max_tokens: int = Field(default=1024, ge=64, le=8192)

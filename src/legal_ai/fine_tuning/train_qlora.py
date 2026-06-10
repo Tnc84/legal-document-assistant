@@ -1,4 +1,4 @@
-"""QLoRA fine-tuning script for Ministral 3B on prepared CUAD JSONL.
+"""LoRA/QLoRA fine-tuning script for Ministral 3B on prepared CUAD JSONL.
 
 Usage:
     uv pip install -e ".[finetune]"
@@ -7,7 +7,7 @@ Usage:
         --base-model mistralai/Ministral-3B-Instruct \
         --output-dir models/ministral-3b-cuad-lora
 
-Designed for a single GPU (>=24 GB VRAM) using 4-bit quantization.
+Supports NVIDIA (bnb 4-bit) and AMD ROCm (fp16/bf16 LoRA fallback).
 """
 
 from __future__ import annotations
@@ -35,6 +35,7 @@ class TrainingArgs:
     lora_alpha: int
     lora_dropout: float
     seed: int
+    quantization_mode: str
 
 
 def parse_arguments() -> TrainingArgs:
@@ -51,6 +52,12 @@ def parse_arguments() -> TrainingArgs:
     parser.add_argument("--lora-alpha", type=int, default=32)
     parser.add_argument("--lora-dropout", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--quantization-mode",
+        choices=["auto", "bnb4", "fp16"],
+        default="auto",
+        help="auto=use bnb4 on NVIDIA, fp16 on AMD/CPU",
+    )
     args = parser.parse_args()
     return TrainingArgs(
         dataset_path=args.dataset,
@@ -65,6 +72,7 @@ def parse_arguments() -> TrainingArgs:
         lora_alpha=args.lora_alpha,
         lora_dropout=args.lora_dropout,
         seed=args.seed,
+        quantization_mode=args.quantization_mode,
     )
 
 
@@ -85,11 +93,7 @@ def run_training(args: TrainingArgs) -> None:
     import torch
     from datasets import load_dataset
     from peft import LoraConfig
-    from transformers import (
-        AutoModelForCausalLM,
-        AutoTokenizer,
-        BitsAndBytesConfig,
-    )
+    from transformers import AutoModelForCausalLM, AutoTokenizer
     from trl import SFTConfig, SFTTrainer
 
     _logger.info(f"Loading dataset {args.dataset_path}")
@@ -97,21 +101,46 @@ def run_training(args: TrainingArgs) -> None:
     dataset = dataset.map(lambda row: {"text": format_record(row)})
 
     _logger.info(f"Loading base model {args.base_model}")
-    quant_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_use_double_quant=True,
-    )
+    use_cuda = torch.cuda.is_available()
+    is_rocm = bool(getattr(torch.version, "hip", None))
+    is_nvidia = use_cuda and not is_rocm
+    effective_mode = _resolve_quantization_mode(args.quantization_mode, is_nvidia)
+
     tokenizer = AutoTokenizer.from_pretrained(args.base_model, use_fast=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(
-        args.base_model,
-        quantization_config=quant_config,
-        device_map="auto",
-        torch_dtype=torch.bfloat16,
-    )
+
+    bf16_supported = bool(use_cuda and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported())
+
+    if effective_mode == "bnb4":
+        from transformers import BitsAndBytesConfig
+
+        quant_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            args.base_model,
+            quantization_config=quant_config,
+            device_map="auto",
+            torch_dtype=torch.bfloat16,
+        )
+        bf16_enabled = True
+        fp16_enabled = False
+        _logger.info("Using bitsandbytes 4-bit quantization (NVIDIA path)")
+    else:
+        torch_dtype = torch.bfloat16 if bf16_supported else (torch.float16 if use_cuda else torch.float32)
+        model = AutoModelForCausalLM.from_pretrained(
+            args.base_model,
+            device_map="auto",
+            torch_dtype=torch_dtype,
+        )
+        bf16_enabled = bf16_supported
+        fp16_enabled = bool(use_cuda and not bf16_supported)
+        _logger.info("Using standard LoRA without bitsandbytes (AMD/CPU path)")
+
     model.config.use_cache = False
 
     lora_config = LoraConfig(
@@ -137,7 +166,8 @@ def run_training(args: TrainingArgs) -> None:
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.learning_rate,
-        bf16=True,
+        bf16=bf16_enabled,
+        fp16=fp16_enabled,
         logging_steps=20,
         save_steps=200,
         save_total_limit=2,
@@ -162,6 +192,14 @@ def run_training(args: TrainingArgs) -> None:
     trainer.save_model(str(args.output_dir))
     tokenizer.save_pretrained(str(args.output_dir))
     _logger.info(f"Saved LoRA adapter to {args.output_dir}")
+
+
+def _resolve_quantization_mode(requested_mode: str, is_nvidia: bool) -> str:
+    if requested_mode == "auto":
+        return "bnb4" if is_nvidia else "fp16"
+    if requested_mode == "bnb4" and not is_nvidia:
+        raise ValueError("quantization-mode=bnb4 is only supported on NVIDIA CUDA")
+    return requested_mode
 
 
 def main() -> None:

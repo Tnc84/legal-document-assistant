@@ -1,0 +1,17 @@
+export PATH="$HOME/.local/bin:$PATH"
+source .venv/bin/activate
+uv pip install -e .
+# pentru fine-tuning AMD/ROCm:
+# uv pip install -e ".[finetune]"
+cp .env.example .env
+docker compose up -d qdrant
+ollama pull ministral:3b
+uvicorn legal_ai.api.main:app --reload
+streamlit run src/legal_ai/ui/app.py
+
+# export PDF-uri CUAD pentru RAG
+uv pip install datasets
+python scripts/export_cuad_pdfs.py
+
+# preprocesare CUAD pentru fine-tuning (daca ai CUAD_v1.json valid)
+uv run python -m legal_ai.fine_tuning.prepare_cuad --cuad-json data/cuad/CUAD_v1.json --output data/processed/cuad_sft.jsonl
