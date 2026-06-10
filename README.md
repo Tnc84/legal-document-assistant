@@ -21,7 +21,7 @@ RAG + fine-tuning assistant pentru analiza contractelor juridice. Trei module:
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
 uv venv .venv
-source .venv/bin/activate
+.venv\Scripts\activate
 uv pip install -e .
 
 cp .env.example .env
@@ -32,7 +32,7 @@ ollama pull ministral:3b   # sau alt tag GGUF compatibil
 
 uvicorn legal_ai.api.main:app --reload --host 0.0.0.0 --port 8000
 
-streamlit run src/legal_ai/ui/app.py
+streamlit run src\legal_ai\ui\app.py
 ```
 
 Pentru fine-tuning:
