@@ -6,8 +6,10 @@ from typing import Sequence
 
 from legal_ai.config.logging import get_logger
 from legal_ai.config.settings import Settings, get_settings
+from legal_ai.observability.telemetry import get_tracer
 
 _logger = get_logger("ingestion.embedder")
+_tracer = get_tracer("legal_ai.ingestion.embedder")
 
 _E5_PASSAGE_PREFIX = "passage: "
 _E5_QUERY_PREFIX = "query: "
@@ -45,13 +47,16 @@ class Embedder:
             return []
         self._ensure_model()
         prefixed = [f"{prefix}{text}" for text in texts]
-        embeddings = self._model.encode(  # type: ignore[union-attr]
-            prefixed,
-            batch_size=self._settings.embedding_batch_size,
-            normalize_embeddings=True,
-            convert_to_numpy=True,
-            show_progress_bar=False,
-        )
+        with _tracer.start_as_current_span("embed.encode") as span:
+            span.set_attribute("embed.count", len(prefixed))
+            span.set_attribute("embed.batch_size", self._settings.embedding_batch_size)
+            embeddings = self._model.encode(  # type: ignore[union-attr]
+                prefixed,
+                batch_size=self._settings.embedding_batch_size,
+                normalize_embeddings=True,
+                convert_to_numpy=True,
+                show_progress_bar=False,
+            )
         return [vector.tolist() for vector in embeddings]
 
     @property

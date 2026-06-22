@@ -29,6 +29,13 @@ dependencies = [
     "pdfplumber>=0.11,<0.13",
     "rapidfuzz>=3.9,<4",
     "numpy>=1.26,<3",
+    "opentelemetry-api>=1.27,<2",
+    "opentelemetry-sdk>=1.27,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.27,<2",
+    "opentelemetry-exporter-prometheus>=0.48b0",
+    "opentelemetry-instrumentation-fastapi>=0.48b0",
+    "opentelemetry-instrumentation-httpx>=0.48b0",
+    "prometheus-client>=0.20,<1",
 ]
 
 [project.optional-dependencies]

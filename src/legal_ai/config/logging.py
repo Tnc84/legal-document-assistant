@@ -8,7 +8,23 @@ from typing import Any
 
 from loguru import logger
 
+from legal_ai.observability.context import get_request_id
+
 _CONFIGURED = False
+
+_TEXT_FORMAT = (
+    "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+    "<level>{level: <8}</level> | "
+    "<magenta>req={extra[request_id]}</magenta> | "
+    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+    "<level>{message}</level>"
+)
+
+
+def _patch_record(record: dict[str, Any]) -> None:
+    """Inject the current request id into every record's extra fields."""
+
+    record["extra"].setdefault("request_id", get_request_id())
 
 
 class _InterceptHandler(logging.Handler):
@@ -26,26 +42,30 @@ class _InterceptHandler(logging.Handler):
         logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
 
 
-def configure_logging(level: str = "INFO") -> None:
-    """Configure loguru sinks once and bridge stdlib logging to it."""
+def configure_logging(level: str = "INFO", log_format: str = "text") -> None:
+    """Configure loguru sinks once and bridge stdlib logging to it.
+
+    Args:
+        level: minimum log level for all sinks.
+        log_format: ``"text"`` for human-readable output or ``"json"`` for
+            structured one-line-per-record output suitable for log aggregation.
+    """
 
     global _CONFIGURED
     if _CONFIGURED:
         return
 
+    logger.configure(patcher=_patch_record)
     logger.remove()
+    use_json = log_format.lower() == "json"
     logger.add(
         sys.stderr,
         level=level,
         backtrace=False,
         diagnose=False,
         enqueue=False,
-        format=(
-            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-            "<level>{level: <8}</level> | "
-            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
-            "<level>{message}</level>"
-        ),
+        serialize=use_json,
+        format="{message}" if use_json else _TEXT_FORMAT,
     )
 
     logging.basicConfig(handlers=[_InterceptHandler()], level=level, force=True)

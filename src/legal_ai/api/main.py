@@ -9,8 +9,9 @@ from pathlib import Path
 from typing import Annotated
 
 import httpx
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from legal_ai.api.dependencies import (
     app_settings,
@@ -39,6 +40,8 @@ from legal_ai.inference.comparator import ClauseDiff, DocumentComparator
 from legal_ai.inference.qa_chain import QAChain, QAResponse
 from legal_ai.inference.risk_detector import RiskDetector, RiskReport
 from legal_ai.ingestion.pipeline import IngestionPipeline
+from legal_ai.observability.middleware import RequestContextMiddleware
+from legal_ai.observability.telemetry import configure_telemetry, shutdown_telemetry
 from legal_ai.retrieval.vector_store import QdrantVectorStore
 
 _logger = get_logger("api")
@@ -47,11 +50,13 @@ _logger = get_logger("api")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = app_settings()
-    configure_logging(settings.api_log_level)
+    configure_logging(settings.api_log_level, settings.log_format)
+    configure_telemetry(settings, app)
     settings.ensure_directories()
     vector_store().ensure_collection()
     _logger.info("Legal AI API started")
     yield
+    shutdown_telemetry()
     _logger.info("Legal AI API shutting down")
 
 
@@ -68,6 +73,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestContextMiddleware)
 
 
 SettingsDep = Annotated[Settings, Depends(app_settings)]
@@ -76,6 +82,11 @@ QADep = Annotated[QAChain, Depends(qa_chain)]
 RiskDep = Annotated[RiskDetector, Depends(risk_detector)]
 CompareDep = Annotated[DocumentComparator, Depends(document_comparator)]
 StoreDep = Annotated[QdrantVectorStore, Depends(vector_store)]
+
+
+@app.get("/metrics")
+async def metrics() -> Response:
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/health", response_model=HealthResponse)

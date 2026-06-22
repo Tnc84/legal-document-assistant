@@ -13,6 +13,7 @@ from rapidfuzz import fuzz
 from legal_ai.config.logging import get_logger
 from legal_ai.config.settings import Settings, get_settings
 from legal_ai.inference.llm_client import LLMClient, load_prompt, safe_json_loads
+from legal_ai.observability.telemetry import traced_operation
 from legal_ai.ingestion.chunker import Chunk, SemanticChunker
 from legal_ai.ingestion.embedder import Embedder
 from legal_ai.ingestion.parser import PdfParser
@@ -85,56 +86,59 @@ class DocumentComparator:
         self._text_dup_threshold = text_dup_threshold
 
     def compare_pdfs(self, left_pdf: str | Path, right_pdf: str | Path) -> ComparisonReport:
-        left_doc = self._parser.parse(left_pdf)
-        right_doc = self._parser.parse(right_pdf)
+        with traced_operation("compare") as span:
+            left_doc = self._parser.parse(left_pdf)
+            right_doc = self._parser.parse(right_pdf)
 
-        left_chunks = self._chunker.chunk(left_doc, document_id="left")
-        right_chunks = self._chunker.chunk(right_doc, document_id="right")
-        if not left_chunks and not right_chunks:
+            left_chunks = self._chunker.chunk(left_doc, document_id="left")
+            right_chunks = self._chunker.chunk(right_doc, document_id="right")
+            span.set_attribute("compare.left_chunks", len(left_chunks))
+            span.set_attribute("compare.right_chunks", len(right_chunks))
+            if not left_chunks and not right_chunks:
+                return ComparisonReport(
+                    left_title=left_doc.title,
+                    right_title=right_doc.title,
+                    total_left=0,
+                    total_right=0,
+                    diffs=[],
+                )
+
+            left_vectors = self._embed(left_chunks)
+            right_vectors = self._embed(right_chunks)
+
+            matches, unmatched_left, unmatched_right = self._match(
+                left_chunks, right_chunks, left_vectors, right_vectors
+            )
+
+            diffs: list[ClauseDiff] = []
+            for left_idx, right_idx, similarity in matches:
+                left = left_chunks[left_idx]
+                right = right_chunks[right_idx]
+                if fuzz.ratio(left.text, right.text) >= self._text_dup_threshold:
+                    diffs.append(self._unchanged_diff(left, right, similarity))
+                    continue
+                analysis = self._analyze_with_llm(left.text, right.text, "modified")
+                diffs.append(self._modified_diff(left, right, similarity, analysis))
+
+            for idx in unmatched_left:
+                left = left_chunks[idx]
+                analysis = self._analyze_with_llm(left.text, None, "removed")
+                diffs.append(self._side_only_diff(left, side="left", analysis=analysis))
+
+            for idx in unmatched_right:
+                right = right_chunks[idx]
+                analysis = self._analyze_with_llm(None, right.text, "added")
+                diffs.append(self._side_only_diff(right, side="right", analysis=analysis))
+
+            diffs.sort(key=lambda d: (-abs(d.risk_delta), d.change_type))
+
             return ComparisonReport(
                 left_title=left_doc.title,
                 right_title=right_doc.title,
-                total_left=0,
-                total_right=0,
-                diffs=[],
+                total_left=len(left_chunks),
+                total_right=len(right_chunks),
+                diffs=diffs,
             )
-
-        left_vectors = self._embed(left_chunks)
-        right_vectors = self._embed(right_chunks)
-
-        matches, unmatched_left, unmatched_right = self._match(
-            left_chunks, right_chunks, left_vectors, right_vectors
-        )
-
-        diffs: list[ClauseDiff] = []
-        for left_idx, right_idx, similarity in matches:
-            left = left_chunks[left_idx]
-            right = right_chunks[right_idx]
-            if fuzz.ratio(left.text, right.text) >= self._text_dup_threshold:
-                diffs.append(self._unchanged_diff(left, right, similarity))
-                continue
-            analysis = self._analyze_with_llm(left.text, right.text, "modified")
-            diffs.append(self._modified_diff(left, right, similarity, analysis))
-
-        for idx in unmatched_left:
-            left = left_chunks[idx]
-            analysis = self._analyze_with_llm(left.text, None, "removed")
-            diffs.append(self._side_only_diff(left, side="left", analysis=analysis))
-
-        for idx in unmatched_right:
-            right = right_chunks[idx]
-            analysis = self._analyze_with_llm(None, right.text, "added")
-            diffs.append(self._side_only_diff(right, side="right", analysis=analysis))
-
-        diffs.sort(key=lambda d: (-abs(d.risk_delta), d.change_type))
-
-        return ComparisonReport(
-            left_title=left_doc.title,
-            right_title=right_doc.title,
-            total_left=len(left_chunks),
-            total_right=len(right_chunks),
-            diffs=diffs,
-        )
 
     def _embed(self, chunks: list[Chunk]) -> np.ndarray:
         if not chunks:

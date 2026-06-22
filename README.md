@@ -14,6 +14,7 @@ RAG + fine-tuning assistant pentru analiza contractelor juridice. Trei module:
 - Orchestrare RAG: **LlamaIndex**
 - API: **FastAPI**, UI demo: **Streamlit**
 - Ingestion PDF: **PyMuPDF** + **pdfplumber**
+- Observabilitate: **OpenTelemetry** (traces + metrics) + **Prometheus** + loguri JSON
 - Fine-tuning: **TRL + PEFT** (AMD/ROCm friendly) + optional **bitsandbytes** pe NVIDIA
 
 ## Setup local
@@ -48,6 +49,7 @@ src/legal_ai/
   retrieval/      # qdrant store, hybrid retriever
   inference/      # qa_chain, risk_detector, comparator
   api/            # FastAPI endpoints
+  observability/  # OpenTelemetry: telemetry, metrics, request context, middleware
   ui/             # Streamlit demo
   fine_tuning/    # CUAD prep + QLoRA + merge/export
   utils/          # helpers comuni
@@ -107,3 +109,33 @@ uv run python -m legal_ai.fine_tuning.prepare_cuad \
 - `POST /risk` — detectează clauze de risc cu output JSON
 - `POST /compare` — comparator semantic între două PDF-uri
 - `GET /health` — status servicii
+- `GET /metrics` — metrici Prometheus (OpenTelemetry)
+
+## Observabilitate
+
+Instrumentare OpenTelemetry: traces pe fluxurile RAG (`rag.qa`, `rag.risk`,
+`rag.compare`, `rag.retrieve`, `embed.encode`, `llm.complete`), token usage de la
+Ollama și instrumentare automată FastAPI + httpx. Fiecare răspuns conține
+headerul `X-Request-ID` (acceptă și unul trimis de client).
+
+Config în `.env`:
+
+```
+OTEL_SERVICE_NAME=legal-ai-api
+OTEL_EXPORTER_OTLP_ENDPOINT=        # gol = fără export OTLP; ex. http://localhost:4318
+OTEL_TRACES_ENABLED=true
+METRICS_ENABLED=true
+LOG_FORMAT=text                     # text | json (json pentru log aggregation)
+```
+
+Metrici expuse la `GET /metrics`:
+- `rag_operation_duration_seconds{operation,success}` — latență per operație
+- `llm_tokens_total{model,direction}` — token usage prompt/completion
+- `http_client_duration_milliseconds{...}` — apeluri ieșite (Ollama/Qdrant)
+
+Traces (Jaeger/Tempo) când `OTEL_EXPORTER_OTLP_ENDPOINT` e setat:
+
+```bash
+docker run -d --name jaeger -p 4318:4318 -p 16686:16686 jaegertracing/all-in-one
+# setează OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318, apoi vezi UI la :16686
+```

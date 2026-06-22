@@ -16,6 +16,10 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from legal_ai.config.logging import get_logger
 from legal_ai.config.settings import Settings, get_settings
+from legal_ai.observability.metrics import record_llm_tokens
+from legal_ai.observability.telemetry import get_tracer
+
+_tracer = get_tracer("legal_ai.inference.llm")
 
 _logger = get_logger("inference.llm")
 _PROMPTS_DIR = Path(__file__).resolve().parents[3] / "prompts"
@@ -73,15 +77,28 @@ class OllamaClient:
         if json_mode:
             payload["format"] = "json"
 
-        _logger.debug(f"Ollama call model={self._settings.ollama_model} json_mode={json_mode}")
-        response = self._client.post("/api/chat", json=payload)
-        response.raise_for_status()
-        data = response.json()
-        message = data.get("message") or {}
-        content = message.get("content", "")
-        if not isinstance(content, str):
-            raise ValueError(f"Unexpected Ollama response shape: {data}")
-        return content
+        model = self._settings.ollama_model
+        _logger.debug(f"Ollama call model={model} json_mode={json_mode}")
+        with _tracer.start_as_current_span("llm.complete") as span:
+            span.set_attribute("llm.model", model)
+            span.set_attribute("llm.json_mode", json_mode)
+            response = self._client.post("/api/chat", json=payload)
+            response.raise_for_status()
+            data = response.json()
+            message = data.get("message") or {}
+            content = message.get("content", "")
+            if not isinstance(content, str):
+                raise ValueError(f"Unexpected Ollama response shape: {data}")
+            self._record_usage(span, model, data)
+            return content
+
+    @staticmethod
+    def _record_usage(span: Any, model: str, data: dict[str, Any]) -> None:
+        prompt_tokens = int(data.get("prompt_eval_count") or 0)
+        completion_tokens = int(data.get("eval_count") or 0)
+        span.set_attribute("llm.prompt_tokens", prompt_tokens)
+        span.set_attribute("llm.completion_tokens", completion_tokens)
+        record_llm_tokens(model, prompt_tokens, completion_tokens)
 
     def complete_json(
         self,

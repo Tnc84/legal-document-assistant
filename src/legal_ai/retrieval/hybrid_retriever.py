@@ -10,9 +10,11 @@ from rank_bm25 import BM25Okapi
 from legal_ai.config.logging import get_logger
 from legal_ai.config.settings import Settings, get_settings
 from legal_ai.ingestion.embedder import Embedder
+from legal_ai.observability.telemetry import get_tracer
 from legal_ai.retrieval.vector_store import QdrantVectorStore, SearchHit
 
 _logger = get_logger("retrieval.hybrid")
+_tracer = get_tracer("legal_ai.retrieval.hybrid")
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
 
@@ -55,35 +57,42 @@ class HybridRetriever:
         effective_top_k = top_k or self._settings.retrieval_top_k
         candidate_k = max(effective_top_k * 4, 20)
 
-        query_vector = self._embedder.encode_query(query)
-        dense_hits = self._vector_store.search(
-            query_vector=query_vector,
-            top_k=candidate_k,
-            document_ids=document_ids,
-        )
-        if not dense_hits:
-            return []
+        with _tracer.start_as_current_span("rag.retrieve") as span:
+            span.set_attribute("retrieval.top_k", effective_top_k)
+            span.set_attribute("retrieval.candidate_k", candidate_k)
 
-        bm25_scores = self._bm25_scores(query, dense_hits)
-        dense_norm = self._min_max_normalize([hit.score for hit in dense_hits])
-        bm25_norm = self._min_max_normalize(bm25_scores)
-
-        results: list[RetrievedChunk] = []
-        for hit, dense, bm25 in zip(dense_hits, dense_norm, bm25_norm):
-            fused = (
-                self._settings.retrieval_dense_weight * dense
-                + self._settings.retrieval_bm25_weight * bm25
+            query_vector = self._embedder.encode_query(query)
+            dense_hits = self._vector_store.search(
+                query_vector=query_vector,
+                top_k=candidate_k,
+                document_ids=document_ids,
             )
-            results.append(
-                RetrievedChunk(
-                    hit=hit,
-                    dense_score=dense,
-                    bm25_score=bm25,
-                    fused_score=fused,
+            if not dense_hits:
+                span.set_attribute("retrieval.hits_count", 0)
+                return []
+
+            bm25_scores = self._bm25_scores(query, dense_hits)
+            dense_norm = self._min_max_normalize([hit.score for hit in dense_hits])
+            bm25_norm = self._min_max_normalize(bm25_scores)
+
+            results: list[RetrievedChunk] = []
+            for hit, dense, bm25 in zip(dense_hits, dense_norm, bm25_norm):
+                fused = (
+                    self._settings.retrieval_dense_weight * dense
+                    + self._settings.retrieval_bm25_weight * bm25
                 )
-            )
-        results.sort(key=lambda item: item.fused_score, reverse=True)
-        return results[:effective_top_k]
+                results.append(
+                    RetrievedChunk(
+                        hit=hit,
+                        dense_score=dense,
+                        bm25_score=bm25,
+                        fused_score=fused,
+                    )
+                )
+            results.sort(key=lambda item: item.fused_score, reverse=True)
+            top_results = results[:effective_top_k]
+            span.set_attribute("retrieval.hits_count", len(top_results))
+            return top_results
 
     @staticmethod
     def _bm25_scores(query: str, hits: list[SearchHit]) -> list[float]:

@@ -84,14 +84,14 @@ class QdrantVectorStore:
         document_ids: list[str] | None = None,
     ) -> list[SearchHit]:
         query_filter = self._build_filter(document_ids)
-        results = self._client.search(
+        response = self._client.query_points(
             collection_name=self._collection,
-            query_vector=query_vector,
+            query=query_vector,
             limit=top_k,
             query_filter=query_filter,
             with_payload=True,
         )
-        return [self._hit_from_point(point) for point in results]
+        return [self._hit_from_point(point) for point in response.points]
 
     def fetch_document_chunks(self, document_id: str, limit: int = 1000) -> list[SearchHit]:
         flt = self._build_filter([document_id])

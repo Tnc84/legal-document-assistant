@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from legal_ai.config.logging import get_logger
 from legal_ai.config.settings import Settings, get_settings
 from legal_ai.inference.llm_client import LLMClient, load_prompt
+from legal_ai.observability.telemetry import traced_operation
 from legal_ai.retrieval.hybrid_retriever import HybridRetriever, RetrievedChunk
 
 _logger = get_logger("inference.qa")
@@ -54,18 +55,26 @@ class QAChain:
         document_ids: list[str] | None = None,
         top_k: int | None = None,
     ) -> QAResponse:
-        retrieved = self._retriever.retrieve(question, top_k=top_k, document_ids=document_ids)
-        if not retrieved:
-            return QAResponse(
-                question=question,
-                answer="No indexed content matches this question.",
-                citations=[],
+        with traced_operation("qa") as span:
+            span.set_attribute("qa.document_ids", document_ids or [])
+            retrieved = self._retriever.retrieve(
+                question, top_k=top_k, document_ids=document_ids
             )
+            if not retrieved:
+                span.set_attribute("qa.retrieved", 0)
+                return QAResponse(
+                    question=question,
+                    answer="No indexed content matches this question.",
+                    citations=[],
+                )
 
-        user_prompt = self._build_user_prompt(question, retrieved)
-        raw_answer = self._llm.complete(self._system_prompt, user_prompt)
-        citations = [self._to_citation(item) for item in retrieved]
-        return QAResponse(question=question, answer=raw_answer.strip(), citations=citations)
+            span.set_attribute("qa.retrieved", len(retrieved))
+            user_prompt = self._build_user_prompt(question, retrieved)
+            raw_answer = self._llm.complete(self._system_prompt, user_prompt)
+            citations = [self._to_citation(item) for item in retrieved]
+            return QAResponse(
+                question=question, answer=raw_answer.strip(), citations=citations
+            )
 
     @staticmethod
     def _build_user_prompt(question: str, retrieved: list[RetrievedChunk]) -> str:

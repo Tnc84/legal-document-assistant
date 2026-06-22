@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default=Path("./data"))
     upload_dir: Path = Field(default=Path("./data/uploads"))
 
+    otel_service_name: str = Field(default="legal-ai-api")
+    otel_exporter_otlp_endpoint: str | None = Field(default=None)
+    otel_traces_enabled: bool = Field(default=True)
+    metrics_enabled: bool = Field(default=True)
+    log_format: str = Field(default="text")
+
     ui_api_base_url: str = Field(default="http://localhost:8000")
 
     @field_validator("api_log_level")
@@ -57,6 +63,15 @@ class Settings(BaseSettings):
         allowed = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
         if normalized not in allowed:
             raise ValueError(f"api_log_level must be one of {sorted(allowed)}")
+        return normalized
+
+    @field_validator("log_format")
+    @classmethod
+    def _normalize_log_format(cls, value: str) -> str:
+        normalized = value.lower().strip()
+        allowed = {"text", "json"}
+        if normalized not in allowed:
+            raise ValueError(f"log_format must be one of {sorted(allowed)}")
         return normalized
 
     @field_validator("data_dir", "upload_dir")

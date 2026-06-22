@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, ValidationError
 from legal_ai.config.logging import get_logger
 from legal_ai.config.settings import Settings, get_settings
 from legal_ai.inference.llm_client import LLMClient, load_prompt, safe_json_loads
+from legal_ai.observability.telemetry import traced_operation
 from legal_ai.retrieval.vector_store import QdrantVectorStore, SearchHit
 
 _logger = get_logger("inference.risk")
@@ -121,19 +122,23 @@ class RiskDetector:
         self._system_prompt = load_prompt("risk_system")
 
     def analyze_document(self, document_id: str, max_chunks: int = 200) -> RiskReport:
-        chunks = self._vector_store.fetch_document_chunks(document_id, limit=max_chunks)
-        if not chunks:
-            return RiskReport(document_id=document_id, findings=[])
+        with traced_operation("risk") as span:
+            span.set_attribute("risk.document_id", document_id)
+            chunks = self._vector_store.fetch_document_chunks(document_id, limit=max_chunks)
+            if not chunks:
+                return RiskReport(document_id=document_id, findings=[])
 
-        candidates = self._select_candidates(chunks)
-        if not candidates:
-            return RiskReport(document_id=document_id, findings=[])
+            candidates = self._select_candidates(chunks)
+            span.set_attribute("risk.candidates", len(candidates))
+            if not candidates:
+                return RiskReport(document_id=document_id, findings=[])
 
-        findings: list[RiskFinding] = []
-        for chunk in candidates:
-            findings.extend(self._classify_chunk(chunk))
-        deduped = self._deduplicate(findings)
-        return RiskReport(document_id=document_id, findings=deduped)
+            findings: list[RiskFinding] = []
+            for chunk in candidates:
+                findings.extend(self._classify_chunk(chunk))
+            deduped = self._deduplicate(findings)
+            span.set_attribute("risk.findings", len(deduped))
+            return RiskReport(document_id=document_id, findings=deduped)
 
     def _select_candidates(self, chunks: list[SearchHit]) -> list[SearchHit]:
         selected: list[SearchHit] = []
