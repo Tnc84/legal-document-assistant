@@ -1,20 +1,22 @@
 # syntax=docker/dockerfile:1
-FROM python:3.12-slim
+
+# ---- Builder stage: toolchain + dependencies into an isolated venv ----
+FROM python:3.12-slim AS builder
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     build-essential \
-    curl \
-    libgl1 \
-    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
+RUN python -m venv "$VIRTUAL_ENV"
+
 # Install CPU-only Torch first so sentence-transformers does not pull CUDA wheels.
-# This layer is cached and only changes when the Torch version changes.
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && \
     pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -22,10 +24,28 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY pyproject.toml README.md /app/
 COPY src /app/src
 
-# Torch is already satisfied (CPU), so this resolves the rest of the RAG stack.
-# Cache mount keeps wheels across rebuilds even when src changes.
+# Torch already satisfied (CPU), so this resolves the rest of the RAG stack.
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install .
+
+# ---- Runtime stage: slim image without build toolchain ----
+FROM python:3.12-slim AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
+
+WORKDIR /app
+
+# Only runtime OS libs (no compilers). apt upgrade pulls security patches.
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
+    curl \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/venv /opt/venv
 
 EXPOSE 8000
 

@@ -15,3 +15,19 @@ python scripts/export_cuad_pdfs.py
 
 # preprocesare CUAD pentru fine-tuning (daca ai CUAD_v1.json valid)
 uv run python -m legal_ai.fine_tuning.prepare_cuad --cuad-json data/cuad/CUAD_v1.json --output data/processed/cuad_sft.jsonl
+
+# ---- Docker (stack complet: qdrant + redis + api + worker) ----
+docker compose up -d
+docker compose up -d --build          # rebuild dupa modificari de cod
+docker compose up -d qdrant redis     # doar infra de baza
+docker compose logs -f api worker
+docker compose ps
+docker compose down
+
+# reimprospateaza imaginea de baza + build curat (recomandat periodic, securitate)
+docker pull python:3.12-slim
+docker compose build --no-cache api
+
+# scanare vulnerabilitati imagine (critical/high)
+docker scout cves --only-severity critical,high legal-document-assistant-api:latest
+docker scout recommendations legal-document-assistant-api:latest
