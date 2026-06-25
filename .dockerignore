@@ -1,0 +1,34 @@
+# Version control
+.git/
+.gitignore
+
+# Python virtual env / caches
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+
+# Runtime data and models (mounted as volumes, not baked into image)
+data/
+contracts/
+models/
+checkpoints/
+qdrant_storage/
+.qdrant_storage/
+redis_storage/
+
+# Secrets and local config
+.env
+.env.local
+
+# Editor / OS / logs
+.idea/
+.vscode/
+.DS_Store
+*.log
+
+# Plans / agent scratch
+.cursor/
