@@ -19,7 +19,6 @@ from time import monotonic
 from typing import TypeVar
 
 from legal_ai.config.logging import get_logger
-from legal_ai.observability.metrics import record_circuit_breaker_state
 
 _logger = get_logger("resilience.circuit_breaker")
 
@@ -34,11 +33,7 @@ class CircuitState(str, Enum):
     HALF_OPEN = "half_open"
 
 
-_STATE_METRIC_VALUE: dict[CircuitState, int] = {
-    CircuitState.CLOSED: 0,
-    CircuitState.OPEN: 1,
-    CircuitState.HALF_OPEN: 2,
-}
+StateListener = Callable[[str, CircuitState], None]
 
 
 class CircuitBreakerError(RuntimeError):
@@ -60,15 +55,21 @@ class CircuitBreaker:
         name: str,
         failure_threshold: int,
         recovery_timeout: float,
+        state_listener: StateListener | None = None,
     ) -> None:
         self._name = name
         self._failure_threshold = failure_threshold
         self._recovery_timeout = recovery_timeout
+        self._state_listener = state_listener
         self._lock = threading.Lock()
         self._state = CircuitState.CLOSED
         self._failure_count = 0
         self._opened_at = 0.0
-        self._publish_state()
+        self._notify()
+
+    @property
+    def name(self) -> str:
+        return self._name
 
     @property
     def state(self) -> CircuitState:
@@ -106,9 +107,8 @@ class CircuitBreaker:
     def _on_failure(self) -> None:
         with self._lock:
             self._failure_count += 1
-            if self._state is CircuitState.HALF_OPEN:
-                self._open()
-            elif self._failure_count >= self._failure_threshold:
+            tripped = self._failure_count >= self._failure_threshold
+            if self._state is CircuitState.HALF_OPEN or tripped:
                 self._open()
 
     def _open(self) -> None:
@@ -120,7 +120,8 @@ class CircuitBreaker:
 
     def _transition(self, new_state: CircuitState) -> None:
         self._state = new_state
-        self._publish_state()
+        self._notify()
 
-    def _publish_state(self) -> None:
-        record_circuit_breaker_state(self._name, _STATE_METRIC_VALUE[self._state])
+    def _notify(self) -> None:
+        if self._state_listener is not None:
+            self._state_listener(self._name, self._state)

@@ -53,12 +53,7 @@ async def ingest_document_task(
     _logger.info(
         f"Async ingest complete for {original_filename} -> {result.document_id}"
     )
-    return {
-        "document_id": result.document_id,
-        "title": result.title,
-        "page_count": result.page_count,
-        "chunk_count": result.chunk_count,
-    }
+    return result.to_dict()
 
 
 async def startup(ctx: dict[str, Any]) -> None:

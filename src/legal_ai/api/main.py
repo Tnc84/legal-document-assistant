@@ -12,6 +12,7 @@ import httpx
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from arq.connections import ArqRedis
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -168,7 +169,7 @@ async def ingest_document(
         saved_path.unlink(missing_ok=True)
         raise HTTPException(status_code=413, detail="PDF exceeds configured max size")
 
-    pool = getattr(request.app.state, "arq_pool", None)
+    pool = _get_arq_pool(request)
     if settings.ingest_async_enabled and pool is not None:
         job_id = await enqueue_ingest(pool, str(saved_path), file.filename)
         response.status_code = status.HTTP_202_ACCEPTED
@@ -181,19 +182,14 @@ async def ingest_document(
         )
 
     result = pipeline.ingest_pdf(saved_path)
-    return IngestResponse(
-        document_id=result.document_id,
-        title=result.title,
-        page_count=result.page_count,
-        chunk_count=result.chunk_count,
-    )
+    return IngestResponse(**result.to_dict())
 
 
 @app.get("/ingest/jobs/{job_id}", response_model=IngestJobStatusResponse)
 async def ingest_job_status(
     request: Request, job_id: str
 ) -> IngestJobStatusResponse:
-    pool = getattr(request.app.state, "arq_pool", None)
+    pool = _get_arq_pool(request)
     if pool is None:
         raise HTTPException(status_code=404, detail="Ingest queue is not enabled")
 
@@ -250,6 +246,10 @@ async def compare_documents(
     finally:
         left_path.unlink(missing_ok=True)
         right_path.unlink(missing_ok=True)
+
+
+def _get_arq_pool(request: Request) -> ArqRedis | None:
+    return getattr(request.app.state, "arq_pool", None)
 
 
 def _persist_upload(upload: UploadFile, settings: Settings) -> Path:

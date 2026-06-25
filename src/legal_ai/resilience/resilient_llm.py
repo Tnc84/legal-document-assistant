@@ -9,7 +9,20 @@ from __future__ import annotations
 
 from legal_ai.config.settings import Settings, get_settings
 from legal_ai.inference.llm_client import LLMClient
-from legal_ai.resilience.circuit_breaker import CircuitBreaker
+from legal_ai.observability.metrics import record_circuit_breaker_state
+from legal_ai.resilience.circuit_breaker import CircuitBreaker, CircuitState
+
+_STATE_METRIC_VALUE: dict[CircuitState, int] = {
+    CircuitState.CLOSED: 0,
+    CircuitState.OPEN: 1,
+    CircuitState.HALF_OPEN: 2,
+}
+
+
+def _record_breaker_metric(name: str, state: CircuitState) -> None:
+    """Bridge circuit breaker state changes to the metrics layer."""
+
+    record_circuit_breaker_state(name, _STATE_METRIC_VALUE[state])
 
 
 class ResilientLLMClient:
@@ -27,6 +40,7 @@ class ResilientLLMClient:
             name="ollama",
             failure_threshold=resolved.ollama_cb_failure_threshold,
             recovery_timeout=resolved.ollama_cb_recovery_timeout,
+            state_listener=_record_breaker_metric,
         )
 
     def complete(

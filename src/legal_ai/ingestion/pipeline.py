@@ -25,6 +25,16 @@ class IngestionResult:
     page_count: int
     chunk_count: int
 
+    def to_dict(self) -> dict[str, str | int]:
+        """Serialize to a JSON-friendly mapping (shared by API and worker)."""
+
+        return {
+            "document_id": self.document_id,
+            "title": self.title,
+            "page_count": self.page_count,
+            "chunk_count": self.chunk_count,
+        }
+
 
 class IngestionPipeline:
     """Orchestrate parsing, chunking, embedding and indexing for one document."""
