@@ -19,6 +19,7 @@ checkpoints/
 
 .qdrant_storage/
 qdrant_storage/
+redis_storage/
 
 .DS_Store
 .idea/

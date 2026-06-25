@@ -54,7 +54,29 @@ class Settings(BaseSettings):
     metrics_enabled: bool = Field(default=True)
     log_format: str = Field(default="text")
 
+    redis_url: str | None = Field(default=None)
+
+    ollama_cb_enabled: bool = Field(default=True)
+    ollama_cb_failure_threshold: int = Field(default=5, ge=1, le=100)
+    ollama_cb_recovery_timeout: float = Field(default=30.0, ge=1.0, le=600.0)
+
+    rate_limit_enabled: bool = Field(default=True)
+    rate_limit_qa: str = Field(default="10/minute")
+    rate_limit_risk: str = Field(default="10/minute")
+    rate_limit_ingest: str = Field(default="3/minute")
+    rate_limit_compare: str = Field(default="3/minute")
+
+    ingest_async_enabled: bool = Field(default=False)
+    ingest_sync_fallback: bool = Field(default=True)
+    ingest_max_retries: int = Field(default=2, ge=0, le=10)
+
     ui_api_base_url: str = Field(default="http://localhost:8000")
+
+    @property
+    def rate_limit_storage_uri(self) -> str:
+        """Storage backend for the rate limiter: Redis when configured, else in-memory."""
+
+        return self.redis_url or "memory://"
 
     @field_validator("api_log_level")
     @classmethod

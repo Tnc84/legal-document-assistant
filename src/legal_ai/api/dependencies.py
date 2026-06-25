@@ -6,11 +6,12 @@ from functools import lru_cache
 
 from legal_ai.config.settings import Settings, get_settings
 from legal_ai.inference.comparator import DocumentComparator
-from legal_ai.inference.llm_client import OllamaClient
+from legal_ai.inference.llm_client import LLMClient, OllamaClient
 from legal_ai.inference.qa_chain import QAChain
 from legal_ai.inference.risk_detector import RiskDetector
 from legal_ai.ingestion.embedder import Embedder
 from legal_ai.ingestion.pipeline import IngestionPipeline
+from legal_ai.resilience.resilient_llm import ResilientLLMClient
 from legal_ai.retrieval.hybrid_retriever import HybridRetriever
 from legal_ai.retrieval.vector_store import QdrantVectorStore
 
@@ -21,8 +22,12 @@ def app_settings() -> Settings:
 
 
 @lru_cache(maxsize=1)
-def llm_client() -> OllamaClient:
-    return OllamaClient(app_settings())
+def llm_client() -> LLMClient:
+    settings = app_settings()
+    client = OllamaClient(settings)
+    if settings.ollama_cb_enabled:
+        return ResilientLLMClient(client, settings)
+    return client
 
 
 @lru_cache(maxsize=1)

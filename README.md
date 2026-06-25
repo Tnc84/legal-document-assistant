@@ -15,6 +15,7 @@ RAG + fine-tuning assistant pentru analiza contractelor juridice. Trei module:
 - API: **FastAPI**, UI demo: **Streamlit**
 - Ingestion PDF: **PyMuPDF** + **pdfplumber**
 - Observabilitate: **OpenTelemetry** (traces + metrics) + **Prometheus** + loguri JSON
+- Reziliență: **circuit breaker** Ollama + **rate limiting** (slowapi) + **ingest queue** (ARQ + Redis)
 - Fine-tuning: **TRL + PEFT** (AMD/ROCm friendly) + optional **bitsandbytes** pe NVIDIA
 
 ## Setup local
@@ -48,8 +49,10 @@ src/legal_ai/
   ingestion/      # parser PDF, chunker semantic, embedder
   retrieval/      # qdrant store, hybrid retriever
   inference/      # qa_chain, risk_detector, comparator
-  api/            # FastAPI endpoints
+  api/            # FastAPI endpoints + rate limiting
   observability/  # OpenTelemetry: telemetry, metrics, request context, middleware
+  resilience/     # circuit breaker + resilient LLM wrapper
+  workers/        # ARQ ingest worker + queue helpers
   ui/             # Streamlit demo
   fine_tuning/    # CUAD prep + QLoRA + merge/export
   utils/          # helpers comuni
@@ -104,7 +107,8 @@ uv run python -m legal_ai.fine_tuning.prepare_cuad \
 
 ## Endpointuri API (rezumat)
 
-- `POST /ingest` — încarcă și indexează un PDF
+- `POST /ingest` — încarcă și indexează un PDF (sincron, sau `202 job_id` când coada async e activă)
+- `GET /ingest/jobs/{job_id}` — status job ingest async (queued/in_progress/complete/failed)
 - `POST /qa` — întrebare în limbaj natural pe documente indexate
 - `POST /risk` — detectează clauze de risc cu output JSON
 - `POST /compare` — comparator semantic între două PDF-uri
@@ -139,3 +143,61 @@ Traces (Jaeger/Tempo) când `OTEL_EXPORTER_OTLP_ENDPOINT` e setat:
 docker run -d --name jaeger -p 4318:4318 -p 16686:16686 jaegertracing/all-in-one
 # setează OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318, apoi vezi UI la :16686
 ```
+
+## Reziliență
+
+Trei mecanisme de protecție la supraîncărcare și indisponibilitate.
+
+### Circuit breaker (Ollama)
+
+Wrapper `ResilientLLMClient` peste `OllamaClient` cu un breaker în 3 stări
+(`closed` → `open` → `half_open`). După `OLLAMA_CB_FAILURE_THRESHOLD` eșecuri
+consecutive circuitul se deschide și apelurile eșuează rapid cu `503` +
+header `Retry-After`, până trece `OLLAMA_CB_RECOVERY_TIMEOUT`. Starea e expusă
+ca metrica `circuit_breaker_state{breaker}` (0=closed, 1=open, 2=half_open).
+
+```
+OLLAMA_CB_ENABLED=true
+OLLAMA_CB_FAILURE_THRESHOLD=5
+OLLAMA_CB_RECOVERY_TIMEOUT=30
+```
+
+### Rate limiting (API)
+
+`slowapi` per IP client, configurabil per endpoint; depășirea întoarce `429` cu
+`Retry-After`, iar răspunsurile includ headere `X-RateLimit-*`. Backend de
+stocare: Redis dacă `REDIS_URL` e setat, altfel in-memory.
+
+```
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_QA=10/minute
+RATE_LIMIT_RISK=10/minute
+RATE_LIMIT_INGEST=3/minute
+RATE_LIMIT_COMPARE=3/minute
+```
+
+### Ingest queue async (ARQ + Redis)
+
+Când `INGEST_ASYNC_ENABLED=true` și `REDIS_URL` e setat, `POST /ingest` pune
+jobul în coadă și răspunde `202` cu `job_id`; un worker ARQ separat procesează
+ingestul (retry cu backoff exponențial, `INGEST_MAX_RETRIES`). Statusul se
+interoghează la `GET /ingest/jobs/{job_id}`. Dacă Redis lipsește, se face
+fallback sincron când `INGEST_SYNC_FALLBACK=true`.
+
+```
+REDIS_URL=redis://localhost:6379
+INGEST_ASYNC_ENABLED=false
+INGEST_SYNC_FALLBACK=true
+INGEST_MAX_RETRIES=2
+```
+
+Pornire worker (separat de API):
+
+```bash
+arq legal_ai.workers.ingest_worker.WorkerSettings
+```
+
+### Docker
+
+`docker compose up -d` pornește acum și `redis` + `worker` (ingest async activat
+implicit în compose). Pentru doar infra de bază: `docker compose up -d qdrant redis`.

@@ -9,9 +9,12 @@ from pathlib import Path
 from typing import Annotated
 
 import httpx
-from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from legal_ai.api.dependencies import (
     app_settings,
@@ -22,11 +25,20 @@ from legal_ai.api.dependencies import (
     risk_detector,
     vector_store,
 )
+from legal_ai.api.rate_limit import (
+    compare_limit,
+    ingest_limit,
+    limiter,
+    qa_limit,
+    risk_limit,
+)
 from legal_ai.api.schemas import (
     CitationModel,
     ClauseDiffModel,
     ComparisonResponseModel,
     HealthResponse,
+    IngestAcceptedResponse,
+    IngestJobStatusResponse,
     IngestResponse,
     QARequest,
     QAResponseModel,
@@ -42,9 +54,31 @@ from legal_ai.inference.risk_detector import RiskDetector, RiskReport
 from legal_ai.ingestion.pipeline import IngestionPipeline
 from legal_ai.observability.middleware import RequestContextMiddleware
 from legal_ai.observability.telemetry import configure_telemetry, shutdown_telemetry
+from legal_ai.resilience.circuit_breaker import CircuitBreakerError
 from legal_ai.retrieval.vector_store import QdrantVectorStore
+from legal_ai.workers.queue import create_arq_pool, enqueue_ingest, fetch_job_state
 
 _logger = get_logger("api")
+
+
+async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> Response:
+    _logger.warning(f"Rate limit exceeded on {request.url.path}: {exc.detail}")
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content={"detail": f"Rate limit exceeded: {exc.detail}"},
+        headers={"Retry-After": "60"},
+    )
+
+
+async def _circuit_breaker_handler(
+    request: Request, exc: CircuitBreakerError
+) -> Response:
+    _logger.warning(f"Circuit breaker open on {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": str(exc)},
+        headers={"Retry-After": str(exc.retry_after)},
+    )
 
 
 @asynccontextmanager
@@ -54,8 +88,18 @@ async def lifespan(app: FastAPI):
     configure_telemetry(settings, app)
     settings.ensure_directories()
     vector_store().ensure_collection()
+    app.state.arq_pool = None
+    if settings.ingest_async_enabled:
+        app.state.arq_pool = await create_arq_pool(settings)
+        if app.state.arq_pool is None:
+            _logger.warning(
+                "INGEST_ASYNC_ENABLED is set but REDIS_URL is missing; "
+                "falling back to synchronous ingest"
+            )
     _logger.info("Legal AI API started")
     yield
+    if app.state.arq_pool is not None:
+        await app.state.arq_pool.close()
     shutdown_telemetry()
     _logger.info("Legal AI API shutting down")
 
@@ -67,12 +111,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+app.add_exception_handler(CircuitBreakerError, _circuit_breaker_handler)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(RequestContextMiddleware)
 
 
@@ -102,12 +151,15 @@ async def health(settings: SettingsDep, store: StoreDep) -> HealthResponse:
     )
 
 
-@app.post("/ingest", response_model=IngestResponse)
+@app.post("/ingest", response_model=None)
+@limiter.limit(ingest_limit)
 async def ingest_document(
+    request: Request,
     settings: SettingsDep,
     pipeline: PipelineDep,
+    response: Response,
     file: UploadFile = File(...),
-) -> IngestResponse:
+) -> IngestResponse | IngestAcceptedResponse:
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF uploads are supported")
 
@@ -115,6 +167,18 @@ async def ingest_document(
     if saved_path.stat().st_size > settings.max_document_mb * 1024 * 1024:
         saved_path.unlink(missing_ok=True)
         raise HTTPException(status_code=413, detail="PDF exceeds configured max size")
+
+    pool = getattr(request.app.state, "arq_pool", None)
+    if settings.ingest_async_enabled and pool is not None:
+        job_id = await enqueue_ingest(pool, str(saved_path), file.filename)
+        response.status_code = status.HTTP_202_ACCEPTED
+        return IngestAcceptedResponse(job_id=job_id, status="queued")
+
+    if settings.ingest_async_enabled and not settings.ingest_sync_fallback:
+        saved_path.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=503, detail="Ingest queue unavailable and sync fallback disabled"
+        )
 
     result = pipeline.ingest_pdf(saved_path)
     return IngestResponse(
@@ -125,8 +189,30 @@ async def ingest_document(
     )
 
 
+@app.get("/ingest/jobs/{job_id}", response_model=IngestJobStatusResponse)
+async def ingest_job_status(
+    request: Request, job_id: str
+) -> IngestJobStatusResponse:
+    pool = getattr(request.app.state, "arq_pool", None)
+    if pool is None:
+        raise HTTPException(status_code=404, detail="Ingest queue is not enabled")
+
+    state = await fetch_job_state(pool, job_id)
+    if state.status == "not_found":
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+    result = IngestResponse(**state.result) if state.result else None
+    return IngestJobStatusResponse(
+        job_id=state.job_id,
+        status=state.status,
+        result=result,
+        error=state.error,
+    )
+
+
 @app.post("/qa", response_model=QAResponseModel)
-async def run_qa(payload: QARequest, qa: QADep) -> QAResponseModel:
+@limiter.limit(qa_limit)
+async def run_qa(request: Request, payload: QARequest, qa: QADep) -> QAResponseModel:
     response = qa.answer(
         question=payload.question,
         document_ids=payload.document_ids,
@@ -136,13 +222,18 @@ async def run_qa(payload: QARequest, qa: QADep) -> QAResponseModel:
 
 
 @app.post("/risk", response_model=RiskResponseModel)
-async def detect_risk(payload: RiskRequest, detector: RiskDep) -> RiskResponseModel:
+@limiter.limit(risk_limit)
+async def detect_risk(
+    request: Request, payload: RiskRequest, detector: RiskDep
+) -> RiskResponseModel:
     report = detector.analyze_document(payload.document_id, max_chunks=payload.max_chunks)
     return _risk_to_schema(report)
 
 
 @app.post("/compare", response_model=ComparisonResponseModel)
+@limiter.limit(compare_limit)
 async def compare_documents(
+    request: Request,
     settings: SettingsDep,
     comparator: CompareDep,
     left: UploadFile = File(...),

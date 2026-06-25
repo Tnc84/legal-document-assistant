@@ -14,6 +14,18 @@ class IngestResponse(BaseModel):
     chunk_count: int
 
 
+class IngestAcceptedResponse(BaseModel):
+    job_id: str
+    status: str = "queued"
+
+
+class IngestJobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    result: IngestResponse | None = None
+    error: str | None = None
+
+
 class QARequest(BaseModel):
     question: str = Field(min_length=3, max_length=2000)
     document_ids: list[str] | None = None

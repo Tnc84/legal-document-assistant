@@ -11,6 +11,15 @@ services:
     environment:
       QDRANT__LOG_LEVEL: INFO
 
+  redis:
+    image: redis:7-alpine
+    container_name: legal_ai_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis_storage:/data
+
   api:
     build:
       context: .
@@ -19,13 +28,39 @@ services:
     restart: unless-stopped
     depends_on:
       - qdrant
+      - redis
     env_file:
       - .env
     environment:
       QDRANT_URL: http://qdrant:6333
       OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+      REDIS_URL: redis://redis:6379
+      INGEST_ASYNC_ENABLED: "true"
     ports:
       - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: legal_ai_worker
+    restart: unless-stopped
+    command: ["arq", "legal_ai.workers.ingest_worker.WorkerSettings"]
+    depends_on:
+      - qdrant
+      - redis
+    env_file:
+      - .env
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+      REDIS_URL: redis://redis:6379
+      INGEST_ASYNC_ENABLED: "true"
     volumes:
       - ./data:/app/data
       - ./models:/app/models

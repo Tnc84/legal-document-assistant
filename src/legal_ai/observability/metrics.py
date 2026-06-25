@@ -6,13 +6,23 @@ metrics are disabled, and so this module never forces telemetry setup on import.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from opentelemetry import metrics
-from opentelemetry.metrics import Counter, Histogram
+from opentelemetry.metrics import (
+    CallbackOptions,
+    Counter,
+    Histogram,
+    ObservableGauge,
+    Observation,
+)
 
 _METER_NAME = "legal_ai"
 
 _llm_tokens: Counter | None = None
 _operation_duration: Histogram | None = None
+_cb_state_gauge: ObservableGauge | None = None
+_cb_states: dict[str, int] = {}
 
 
 def _ensure_instruments() -> None:
@@ -51,3 +61,28 @@ def record_operation(operation: str, duration_s: float, success: bool) -> None:
     _operation_duration.record(
         duration_s, {"operation": operation, "success": str(success).lower()}
     )
+
+
+def _observe_circuit_breaker_state(
+    options: CallbackOptions,
+) -> Iterable[Observation]:
+    return [Observation(value, {"breaker": name}) for name, value in _cb_states.items()]
+
+
+def _ensure_cb_gauge() -> None:
+    global _cb_state_gauge
+    if _cb_state_gauge is not None:
+        return
+    meter = metrics.get_meter(_METER_NAME)
+    _cb_state_gauge = meter.create_observable_gauge(
+        name="circuit_breaker.state",
+        callbacks=[_observe_circuit_breaker_state],
+        description="Circuit breaker state (0=closed, 1=open, 2=half_open).",
+    )
+
+
+def record_circuit_breaker_state(name: str, state_value: int) -> None:
+    """Publish the current state of a named circuit breaker as a gauge value."""
+
+    _cb_states[name] = state_value
+    _ensure_cb_gauge()
