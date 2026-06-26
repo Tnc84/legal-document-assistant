@@ -201,3 +201,41 @@ arq legal_ai.workers.ingest_worker.WorkerSettings
 
 `docker compose up -d` pornește acum și `redis` + `worker` (ingest async activat
 implicit în compose). Pentru doar infra de bază: `docker compose up -d qdrant redis`.
+
+## Evaluări RAG
+
+Suită reproductibilă de evaluare (retrieval, calitate răspuns, citări) cu praguri
+folosite ca gate de calitate. Specificația completă: [`docs/rag_evaluations_ci_cd.md`](docs/rag_evaluations_ci_cd.md).
+
+```bash
+python scripts/run_eval.py --suite retrieval --top-k 8 --output reports/eval.json
+python scripts/run_eval.py --suite qa --top-k 8 --output reports/eval_YYYYMMDD.json
+```
+
+- `--suite retrieval` nu necesită LLM (doar Qdrant + embedder) — potrivit pentru CI
+- `--suite qa` necesită Ollama — rulare locală
+- praguri MVP: Recall@8 ≥ 0.70, citation page match ≥ 0.60, answer contains ≥ 0.65
+
+> Suita de evaluare (`src/legal_ai/evals/` + `scripts/run_eval.py`) e planificată;
+> vezi documentul de mai sus pentru structura de date și module.
+
+## CI/CD (GitHub Actions)
+
+Pipeline în [`.github/workflows/ci.yml`](.github/workflows/ci.yml), declanșat la
+`push` pe `main`, `pull_request` către `main` și tag-uri `v*`.
+
+| Job | Rol |
+|---|---|
+| `lint` | `ruff check` + `black --check` pe `src`/`scripts` |
+| `type-check` | `mypy src/legal_ai` (informativ, nu blochează) |
+| `eval` | pornește Qdrant ca service, rulează gate-ul de evaluare (suita `retrieval`) |
+| `docker` | build imagine; push în `ghcr.io` doar pe `push` (branch `main` / tag-uri) |
+
+- Pe `pull_request` imaginea se construiește dar **nu** se publică; pe `push` se
+  publică în GitHub Container Registry cu `GITHUB_TOKEN`.
+- Gate-ul `eval` e protejat: dacă `scripts/run_eval.py` nu există încă, jobul trece
+  cu un `notice` și nu blochează pipeline-ul.
+
+Activare: comite workflow-ul și fă `push` pe GitHub — Actions rulează automat.
+Pentru publicarea imaginii: **Settings → Actions → General → Workflow permissions →
+Read and write permissions**.
