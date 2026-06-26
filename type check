@@ -1,6 +1,0 @@
-Run mypy src/legal_ai
-src/legal_ai/config/logging.py:40: error: Incompatible types in assignment (expression has type "FrameType | None", variable has type "FrameType")  [assignment]
-src/legal_ai/ingestion/embedder.py:53: error: "None" has no attribute "encode"  [attr-defined]
-src/legal_ai/ingestion/embedder.py:53: note: Error code "attr-defined" not covered by "type: ignore[union-attr]" comment
-Found 2 errors in 2 files (checked 43 source files)
-Error: Process completed with exit code 1.

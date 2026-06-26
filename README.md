@@ -239,3 +239,20 @@ Pipeline în [`.github/workflows/ci.yml`](.github/workflows/ci.yml), declanșat 
 Activare: comite workflow-ul și fă `push` pe GitHub — Actions rulează automat.
 Pentru publicarea imaginii: **Settings → Actions → General → Workflow permissions →
 Read and write permissions**.
+
+## Pre-commit (lint + format local)
+
+Hook-uri `ruff` (cu `--fix`) și `black` rulate automat la fiecare commit, pe
+`src/` și `scripts/` — aceeași zonă ca jobul `lint` din CI. Config:
+[`.pre-commit-config.yaml`](.pre-commit-config.yaml).
+
+```bash
+uv pip install -e ".[dev]"
+pre-commit install
+pre-commit run --all-files   # opțional: rulează o dată pe tot codebase-ul
+```
+
+- La fiecare `git commit`, ruff repară lint-ul și black formatează fișierele
+  modificate; dacă se schimbă ceva, commit-ul se oprește ca să faci `git add` din nou.
+- Rulează pe orice branch (inclusiv `develop`) — prinde problemele local, înainte de CI.
+- Versiunile hook-urilor sunt aliniate cu cele din `pyproject.toml` (`[dev]`).

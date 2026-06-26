@@ -1,0 +1,18 @@
+# Pre-commit hooks: lint (ruff) + format (black), aliniate cu jobul `lint` din CI.
+# Activare: `uv pip install pre-commit` apoi `pre-commit install`.
+default_language_version:
+  python: python3.12
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.6
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^(src|scripts)/
+
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        files: ^(src|scripts)/
