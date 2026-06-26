@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable
 
 from legal_ai.ingestion.parser import ParsedDocument
 from legal_ai.utils.text import estimate_tokens
@@ -107,7 +107,7 @@ class SemanticChunker:
                     section_path=buffer_section,
                 )
 
-    def _merge_segments(self, segments: list["_Segment"]) -> list["_Segment"]:
+    def _merge_segments(self, segments: list[_Segment]) -> list[_Segment]:
         merged: list[_Segment] = []
         for segment in segments:
             if not segment.text:
@@ -129,11 +129,11 @@ class SemanticChunker:
 
         return self._apply_overlap(merged)
 
-    def _apply_overlap(self, segments: list["_Segment"]) -> list["_Segment"]:
+    def _apply_overlap(self, segments: list[_Segment]) -> list[_Segment]:
         if self._overlap_tokens == 0 or len(segments) < 2:
             return segments
         overlapped: list[_Segment] = [segments[0]]
-        for previous, current in zip(segments, segments[1:]):
+        for previous, current in zip(segments, segments[1:], strict=False):
             tail = self._tail_within_tokens(previous.text, self._overlap_tokens)
             new_text = f"{tail}\n\n{current.text}" if tail else current.text
             overlapped.append(

@@ -72,7 +72,7 @@ class QdrantVectorStore:
                 vector=vector,
                 payload=self._build_payload(chunk),
             )
-            for chunk, vector in zip(chunks, embeddings)
+            for chunk, vector in zip(chunks, embeddings, strict=False)
         ]
         self._client.upsert(collection_name=self._collection, points=points, wait=True)
         _logger.info(f"Upserted {len(points)} chunks into {self._collection}")

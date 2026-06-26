@@ -13,10 +13,10 @@ from rapidfuzz import fuzz
 from legal_ai.config.logging import get_logger
 from legal_ai.config.settings import Settings, get_settings
 from legal_ai.inference.llm_client import LLMClient, load_prompt, safe_json_loads
-from legal_ai.observability.telemetry import traced_operation
 from legal_ai.ingestion.chunker import Chunk, SemanticChunker
 from legal_ai.ingestion.embedder import Embedder
 from legal_ai.ingestion.parser import PdfParser
+from legal_ai.observability.telemetry import traced_operation
 
 _logger = get_logger("inference.comparator")
 

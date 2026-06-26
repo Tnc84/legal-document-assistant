@@ -9,10 +9,10 @@ from pathlib import Path
 from typing import Annotated
 
 import httpx
+from arq.connections import ArqRedis
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from arq.connections import ArqRedis
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -20,7 +20,6 @@ from slowapi.middleware import SlowAPIMiddleware
 from legal_ai.api.dependencies import (
     app_settings,
     document_comparator,
-    embedder,
     ingestion_pipeline,
     qa_chain,
     risk_detector,
@@ -159,7 +158,7 @@ async def ingest_document(
     settings: SettingsDep,
     pipeline: PipelineDep,
     response: Response,
-    file: UploadFile = File(...),
+    file: Annotated[UploadFile, File(...)],
 ) -> IngestResponse | IngestAcceptedResponse:
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF uploads are supported")
@@ -232,8 +231,8 @@ async def compare_documents(
     request: Request,
     settings: SettingsDep,
     comparator: CompareDep,
-    left: UploadFile = File(...),
-    right: UploadFile = File(...),
+    left: Annotated[UploadFile, File(...)],
+    right: Annotated[UploadFile, File(...)],
 ) -> ComparisonResponseModel:
     for upload in (left, right):
         if not upload.filename or not upload.filename.lower().endswith(".pdf"):
