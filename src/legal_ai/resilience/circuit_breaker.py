@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from enum import Enum
+from enum import StrEnum
 from time import monotonic
 from typing import TypeVar
 
@@ -25,7 +25,7 @@ _logger = get_logger("resilience.circuit_breaker")
 T = TypeVar("T")
 
 
-class CircuitState(str, Enum):
+class CircuitState(StrEnum):
     """Lifecycle states of a circuit breaker."""
 
     CLOSED = "closed"

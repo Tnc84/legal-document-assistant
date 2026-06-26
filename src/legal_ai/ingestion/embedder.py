@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from legal_ai.config.logging import get_logger
 from legal_ai.config.settings import Settings, get_settings

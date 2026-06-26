@@ -44,13 +44,12 @@ def _render_sidebar(client: LegalApiClient) -> None:
     if st.sidebar.button("Index document", disabled=upload is None):
         if upload is None:
             return
-        with st.sidebar:
-            with st.spinner("Indexing..."):
-                try:
-                    result = client.ingest(upload.getvalue(), upload.name)
-                except Exception as exc:
-                    st.error(f"Ingest failed: {exc}")
-                    return
+        with st.sidebar, st.spinner("Indexing..."):
+            try:
+                result = client.ingest(upload.getvalue(), upload.name)
+            except Exception as exc:
+                st.error(f"Ingest failed: {exc}")
+                return
         st.session_state["ingested_documents"].append(result)
         st.sidebar.success(
             f"Indexed {result['title']} ({result['chunk_count']} chunks)"

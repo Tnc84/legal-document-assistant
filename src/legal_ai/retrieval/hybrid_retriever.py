@@ -76,7 +76,7 @@ class HybridRetriever:
             bm25_norm = self._min_max_normalize(bm25_scores)
 
             results: list[RetrievedChunk] = []
-            for hit, dense, bm25 in zip(dense_hits, dense_norm, bm25_norm):
+            for hit, dense, bm25 in zip(dense_hits, dense_norm, bm25_norm, strict=False):
                 fused = (
                     self._settings.retrieval_dense_weight * dense
                     + self._settings.retrieval_bm25_weight * bm25

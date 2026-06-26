@@ -38,7 +38,7 @@ _meter_provider: MeterProvider | None = None
 _configured = False
 
 
-def configure_telemetry(settings: Settings, app: "FastAPI") -> None:
+def configure_telemetry(settings: Settings, app: FastAPI) -> None:
     """Set up tracing and metrics providers once and instrument the app."""
 
     global _tracer_provider, _meter_provider, _configured
