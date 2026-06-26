@@ -47,9 +47,7 @@ async def create_arq_pool(settings: Settings) -> ArqRedis | None:
     return pool
 
 
-async def enqueue_ingest(
-    pool: ArqRedis, saved_path: str, original_filename: str
-) -> str:
+async def enqueue_ingest(pool: ArqRedis, saved_path: str, original_filename: str) -> str:
     """Enqueue an ingestion job and return its job id."""
 
     job = await pool.enqueue_job(INGEST_TASK_NAME, saved_path, original_filename)

@@ -42,9 +42,7 @@ class CircuitBreakerError(RuntimeError):
     def __init__(self, name: str, retry_after: float) -> None:
         self.name = name
         self.retry_after = max(0, int(round(retry_after)))
-        super().__init__(
-            f"Circuit breaker '{name}' is open; retry after {self.retry_after}s"
-        )
+        super().__init__(f"Circuit breaker '{name}' is open; retry after {self.retry_after}s")
 
 
 class CircuitBreaker:

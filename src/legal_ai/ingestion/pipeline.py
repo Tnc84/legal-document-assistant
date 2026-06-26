@@ -75,9 +75,7 @@ class IngestionPipeline:
         embeddings = self._embedder.encode_passages([chunk.text for chunk in chunks])
         self._vector_store.upsert_chunks(chunks, embeddings)
 
-        _logger.info(
-            f"Ingested document {document.title} (id={doc_id}) -> {len(chunks)} chunks"
-        )
+        _logger.info(f"Ingested document {document.title} (id={doc_id}) -> {len(chunks)} chunks")
         return IngestionResult(
             document_id=doc_id,
             title=document.title,
@@ -85,7 +83,9 @@ class IngestionPipeline:
             chunk_count=len(chunks),
         )
 
-    def chunk_document_only(self, pdf_path: str | Path, document_id: str | None = None) -> list[Chunk]:
+    def chunk_document_only(
+        self, pdf_path: str | Path, document_id: str | None = None
+    ) -> list[Chunk]:
         path = Path(pdf_path)
         document = self._parser.parse(path)
         doc_id = document_id or self._compute_document_id(path, document.full_text)

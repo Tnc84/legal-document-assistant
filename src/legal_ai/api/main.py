@@ -70,9 +70,7 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> Respo
     )
 
 
-async def _circuit_breaker_handler(
-    request: Request, exc: CircuitBreakerError
-) -> Response:
+async def _circuit_breaker_handler(request: Request, exc: CircuitBreakerError) -> Response:
     _logger.warning(f"Circuit breaker open on {request.url.path}: {exc}")
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -185,9 +183,7 @@ async def ingest_document(
 
 
 @app.get("/ingest/jobs/{job_id}", response_model=IngestJobStatusResponse)
-async def ingest_job_status(
-    request: Request, job_id: str
-) -> IngestJobStatusResponse:
+async def ingest_job_status(request: Request, job_id: str) -> IngestJobStatusResponse:
     pool = _get_arq_pool(request)
     if pool is None:
         raise HTTPException(status_code=404, detail="Ingest queue is not enabled")

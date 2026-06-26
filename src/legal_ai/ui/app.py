@@ -51,9 +51,7 @@ def _render_sidebar(client: LegalApiClient) -> None:
                 st.error(f"Ingest failed: {exc}")
                 return
         st.session_state["ingested_documents"].append(result)
-        st.sidebar.success(
-            f"Indexed {result['title']} ({result['chunk_count']} chunks)"
-        )
+        st.sidebar.success(f"Indexed {result['title']} ({result['chunk_count']} chunks)")
 
     if st.session_state["ingested_documents"]:
         st.sidebar.markdown("**Indexed documents**")
@@ -111,7 +109,9 @@ def _render_risk_tab(client: LegalApiClient) -> None:
             st.success("No risks detected with the current rules.")
             return
         for finding in findings:
-            color = {"high": "red", "medium": "orange", "low": "blue"}.get(finding["severity"], "gray")
+            color = {"high": "red", "medium": "orange", "low": "blue"}.get(
+                finding["severity"], "gray"
+            )
             st.markdown(
                 f"**[{finding['severity'].upper()}] {finding['category']}** - p.{finding['page']}"
             )
@@ -135,9 +135,7 @@ def _render_compare_tab(client: LegalApiClient) -> None:
             return
         with st.spinner("Comparing..."):
             try:
-                report = client.compare(
-                    left.getvalue(), left.name, right.getvalue(), right.name
-                )
+                report = client.compare(left.getvalue(), left.name, right.getvalue(), right.name)
             except Exception as exc:
                 st.error(f"Comparison failed: {exc}")
                 return

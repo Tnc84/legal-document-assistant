@@ -70,7 +70,9 @@ class OllamaClient:
                 {"role": "user", "content": user_prompt},
             ],
             "options": {
-                "temperature": temperature if temperature is not None else self._settings.ollama_temperature,
+                "temperature": (
+                    temperature if temperature is not None else self._settings.ollama_temperature
+                ),
                 "num_predict": max_tokens or self._settings.ollama_max_tokens,
             },
         }

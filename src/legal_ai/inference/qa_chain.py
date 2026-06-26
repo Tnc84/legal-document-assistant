@@ -57,9 +57,7 @@ class QAChain:
     ) -> QAResponse:
         with traced_operation("qa") as span:
             span.set_attribute("qa.document_ids", document_ids or [])
-            retrieved = self._retriever.retrieve(
-                question, top_k=top_k, document_ids=document_ids
-            )
+            retrieved = self._retriever.retrieve(question, top_k=top_k, document_ids=document_ids)
             if not retrieved:
                 span.set_attribute("qa.retrieved", 0)
                 return QAResponse(
@@ -72,9 +70,7 @@ class QAChain:
             user_prompt = self._build_user_prompt(question, retrieved)
             raw_answer = self._llm.complete(self._system_prompt, user_prompt)
             citations = [self._to_citation(item) for item in retrieved]
-            return QAResponse(
-                question=question, answer=raw_answer.strip(), citations=citations
-            )
+            return QAResponse(question=question, answer=raw_answer.strip(), citations=citations)
 
     @staticmethod
     def _build_user_prompt(question: str, retrieved: list[RetrievedChunk]) -> str:

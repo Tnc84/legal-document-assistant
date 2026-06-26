@@ -50,9 +50,7 @@ async def ingest_document_task(
         raise
 
     path.unlink(missing_ok=True)
-    _logger.info(
-        f"Async ingest complete for {original_filename} -> {result.document_id}"
-    )
+    _logger.info(f"Async ingest complete for {original_filename} -> {result.document_id}")
     return result.to_dict()
 
 

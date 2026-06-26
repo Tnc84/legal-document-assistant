@@ -54,9 +54,7 @@ def configure_telemetry(settings: Settings, app: FastAPI) -> None:
                 endpoint=f"{settings.otel_exporter_otlp_endpoint.rstrip('/')}/v1/traces"
             )
             _tracer_provider.add_span_processor(BatchSpanProcessor(exporter))
-            _logger.info(
-                f"OTLP trace export enabled -> {settings.otel_exporter_otlp_endpoint}"
-            )
+            _logger.info(f"OTLP trace export enabled -> {settings.otel_exporter_otlp_endpoint}")
         trace.set_tracer_provider(_tracer_provider)
 
     if settings.metrics_enabled:
@@ -90,9 +88,7 @@ def traced_operation(operation: str) -> Iterator[trace.Span]:
 
     start = perf_counter()
     success = False
-    with get_tracer(_INSTRUMENTATION_SCOPE).start_as_current_span(
-        f"rag.{operation}"
-    ) as span:
+    with get_tracer(_INSTRUMENTATION_SCOPE).start_as_current_span(f"rag.{operation}") as span:
         try:
             yield span
             success = True

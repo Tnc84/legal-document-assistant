@@ -21,9 +21,7 @@ _REQUEST_ID_HEADER = "X-Request-ID"
 class RequestContextMiddleware(BaseHTTPMiddleware):
     """Attach a request id, time the request and emit a structured access log."""
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         request_id = request.headers.get(_REQUEST_ID_HEADER) or uuid.uuid4().hex
         set_request_id(request_id)
 

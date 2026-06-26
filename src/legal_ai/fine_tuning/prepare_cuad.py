@@ -25,10 +25,10 @@ _logger = get_logger("fine_tuning.prepare_cuad")
 
 _INSTRUCTION = (
     "You are a legal risk classifier. Given a contract excerpt, return JSON "
-    "{\"category\": <risk_category>, \"severity\": \"low\"|\"medium\"|\"high\", "
-    "\"source_text\": <verbatim quote>, \"rationale\": <one sentence>}. "
+    '{"category": <risk_category>, "severity": "low"|"medium"|"high", '
+    '"source_text": <verbatim quote>, "rationale": <one sentence>}. '
     "Use only categories from the project taxonomy; if the excerpt has no risk, "
-    "return {\"category\": \"none\", ...}."
+    'return {"category": "none", ...}.'
 )
 
 

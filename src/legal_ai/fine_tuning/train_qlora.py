@@ -82,9 +82,7 @@ def format_record(record: dict) -> str:
     instruction = record.get("instruction", "").strip()
     user_input = record.get("input", "").strip()
     output = record.get("output", "").strip()
-    return (
-        f"<s>[INST] {instruction}\n\n{user_input} [/INST] {output} </s>"
-    )
+    return f"<s>[INST] {instruction}\n\n{user_input} [/INST] {output} </s>"
 
 
 def run_training(args: TrainingArgs) -> None:
@@ -110,7 +108,9 @@ def run_training(args: TrainingArgs) -> None:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    bf16_supported = bool(use_cuda and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported())
+    bf16_supported = bool(
+        use_cuda and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported()
+    )
 
     if effective_mode == "bnb4":
         from transformers import BitsAndBytesConfig
@@ -131,7 +131,9 @@ def run_training(args: TrainingArgs) -> None:
         fp16_enabled = False
         _logger.info("Using bitsandbytes 4-bit quantization (NVIDIA path)")
     else:
-        torch_dtype = torch.bfloat16 if bf16_supported else (torch.float16 if use_cuda else torch.float32)
+        torch_dtype = (
+            torch.bfloat16 if bf16_supported else (torch.float16 if use_cuda else torch.float32)
+        )
         model = AutoModelForCausalLM.from_pretrained(
             args.base_model,
             device_map="auto",
