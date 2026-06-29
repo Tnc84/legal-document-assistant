@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from legal_ai.config.logging import get_logger
 from legal_ai.config.settings import Settings, get_settings
 from legal_ai.observability.telemetry import get_tracer
+
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
 
 _logger = get_logger("ingestion.embedder")
 _tracer = get_tracer("legal_ai.ingestion.embedder")
@@ -20,7 +24,7 @@ class Embedder:
 
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
-        self._model = None
+        self._model: SentenceTransformer | None = None
 
     def _ensure_model(self) -> None:
         if self._model is not None:
@@ -46,11 +50,12 @@ class Embedder:
         if not texts:
             return []
         self._ensure_model()
+        assert self._model is not None
         prefixed = [f"{prefix}{text}" for text in texts]
         with _tracer.start_as_current_span("embed.encode") as span:
             span.set_attribute("embed.count", len(prefixed))
             span.set_attribute("embed.batch_size", self._settings.embedding_batch_size)
-            embeddings = self._model.encode(  # type: ignore[union-attr]
+            embeddings = self._model.encode(
                 prefixed,
                 batch_size=self._settings.embedding_batch_size,
                 normalize_embeddings=True,

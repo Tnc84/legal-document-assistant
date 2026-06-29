@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from types import FrameType
 from typing import Any
 
 from loguru import logger
@@ -35,7 +36,8 @@ class _InterceptHandler(logging.Handler):
             level: str | int = logger.level(record.levelname).name
         except ValueError:
             level = record.levelno
-        frame, depth = logging.currentframe(), 2
+        frame: FrameType | None = logging.currentframe()
+        depth = 2
         while frame and frame.f_code.co_filename == logging.__file__:
             frame = frame.f_back
             depth += 1
