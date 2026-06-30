@@ -76,17 +76,19 @@ jobs:
           pip install -e .
       - name: Run retrieval eval gate
         run: |
-          if [ ! -f scripts/run_eval.py ]; then
-            echo "::notice::Eval suite (Plan 2) not implemented yet — skipping gate."
-            exit 0
-          fi
           echo "Waiting for Qdrant to become ready..."
           for i in $(seq 1 30); do
             if curl -sf http://localhost:6333/readyz; then break; fi
             sleep 2
           done
           mkdir -p reports
-          python scripts/run_eval.py --suite retrieval --top-k 8 --output reports/eval.json
+          # The runner self-skips (exit 0) when golden data is not committed yet,
+          # so the gate only fails once data/evals/retrieval_cases.jsonl exists.
+          python scripts/run_eval.py \
+            --suite retrieval \
+            --top-k 8 \
+            --collection legal_contracts_eval \
+            --output reports/eval.json
       - name: Upload eval report
         if: always() && hashFiles('reports/eval.json') != ''
         uses: actions/upload-artifact@v5
